@@ -68,6 +68,33 @@ The script prints the top 5 locations at the end of the run and includes them in
 
 All output is written to `data/instagram_data_<target_username>/`.
 
+### 6. Insights (`insights.json`)
+
+After scraping, run the insights analyzer to infer interests, hobbies, travel style, music taste, and more from the raw data:
+
+```bash
+python instagram_insights.py <target_username>
+```
+
+| Method | What it infers | Reliability |
+|--------|----------------|-------------|
+| **Rule-based** | College, occupation hints, hobbies, interests, favorite places, travel style, music taste, languages, posting times, hashtags, social mentions | High–Medium |
+| **Ollama (llama3.2)** | Personality, fashion style, favorite food, daily routine, favorite brands, events, humor, overall summary | Low–Medium |
+
+Options:
+
+```bash
+python instagram_insights.py sharma091_123          # default: uses local Ollama
+python instagram_insights.py sharma091_123 --no-ollama  # rule-based only (faster)
+python instagram_insights.py sharma091_123 --model llama3.2
+```
+
+Requires [Ollama](https://ollama.com/) running locally with `llama3.2` pulled. If Ollama is unavailable, the script still produces rule-based insights.
+
+**Input files used:** `profile.json`, `posts.json`, `stories.json`, `highlights.json`, `hashtags.json`, `mentions.json`, `top_songs.json`, `top_locations.json`, `SUMMARY.json`, or consolidated `raw_bundle.json`.
+
+**Output:** `insights.json` with reliability scores and evidence for each inference.
+
 ---
 
 ## How does it talk to Instagram?
@@ -162,19 +189,24 @@ You never need to manually edit the session file — it is binary/session data m
 
 ```
 instagram-scraper/
-├── instagram_scraper.py    # Main script
+├── instagram_scraper.py    # Scrape profile, posts, reels, stories
+├── instagram_insights.py   # Analyze scraped data (rule-based + Ollama)
 ├── session-<username>      # Auto-generated; keep local, do not commit
 └── data/                   # Scraped user data (gitignored)
     └── instagram_data_<target>/
         ├── profile.json
         ├── posts.json
+        ├── stories.json
+        ├── highlights.json
+        ├── raw_bundle.json
         ├── posts_with_songs.json
         ├── top_songs.json
         ├── posts_with_locations.json
         ├── top_locations.json
         ├── hashtags.json
         ├── mentions.json
-        └── SUMMARY.json
+        ├── SUMMARY.json
+        └── insights.json
 ```
 
 ---

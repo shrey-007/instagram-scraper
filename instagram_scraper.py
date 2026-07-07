@@ -346,14 +346,37 @@ def fetch_user_stories(loader, profile_id):
     reel = story_json.get("reel") or {}
     return reel.get("items") or []
 
-def process_story_item(item, location_counts, location_examples, seen_story_ids):
+def process_story_item(item, stories_data, location_counts, location_examples, seen_story_ids):
     story_id = item.get("pk") or item.get("id")
     if story_id and story_id in seen_story_ids:
         return
     if story_id:
         seen_story_ids.add(story_id)
 
-    record_locations(extract_locations(item), location_counts, location_examples)
+    locations = extract_locations(item)
+    record_locations(locations, location_counts, location_examples)
+
+    caption_text = item.get("caption", {}).get("text", "") if item.get("caption") else ""
+    stories_data.append({
+        "story_id":   str(story_id) if story_id else None,
+        "date":       datetime.fromtimestamp(item.get("taken_at")).isoformat() if item.get("taken_at") else None,
+        "caption":    caption_text,
+        "location":   locations[0] if locations else None,
+        "media_type": "video" if item.get("media_type") == 2 else "photo",
+    })
+
+def extract_highlights(user_data):
+    highlights = []
+    for edge in user_data.get("edge_highlight_reels", {}).get("edges", []):
+        node = edge.get("node") or {}
+        cover = node.get("cover_media") or {}
+        highlights.append({
+            "id":         node.get("id"),
+            "title":      node.get("title"),
+            "item_count": node.get("media_count"),
+            "cover_url":  cover.get("thumbnail_src") or cover.get("display_url"),
+        })
+    return highlights
 
 # ─────────────────────────────────────────
 # 1. PROFILE INFO
@@ -380,12 +403,16 @@ profile_report = {
     "full_name":         user_data['full_name'],
     "user_id":           user_data['id'],
     "biography":         user_data['biography'],
+    "external_url":      user_data.get('external_url'),
+    "pronouns":          user_data.get('pronouns'),
+    "category":          user_data.get('category_name') or user_data.get('business_category_name'),
     "followers":         user_data['edge_followed_by']['count'],
     "followees":         user_data['edge_follow']['count'],
     "posts_count":       user_data['edge_owner_to_timeline_media']['count'],
     "is_private":        user_data['is_private'],
     "is_verified":       user_data['is_verified'],
     "profile_pic_url":   user_data['profile_pic_url_hd'],
+    "highlights":        extract_highlights(user_data),
     "scraped_at":        datetime.now().isoformat(),
 }
 
@@ -398,6 +425,7 @@ print(f"  → Saved profile info")
 # ─────────────────────────────────────────
 print("\n[*] Scraping posts and reels...")
 posts_data          = []
+stories_data        = []
 all_hashtags        = []
 all_mentions        = []
 post_types          = Counter()
@@ -422,7 +450,22 @@ for item in feed_items + reel_items:
     )
 
 for item in story_items:
-    process_story_item(item, location_counts, location_examples, seen_story_ids)
+    process_story_item(item, stories_data, location_counts, location_examples, seen_story_ids)
+
+posting_hours = Counter()
+posting_days = Counter()
+for post in posts_data:
+    if post.get("date"):
+        dt = datetime.fromisoformat(post["date"])
+        posting_hours[dt.hour] += 1
+        posting_days[dt.strftime("%A")] += 1
+
+posting_patterns = {
+    "by_hour": dict(sorted(posting_hours.items())),
+    "by_day": dict(posting_days),
+    "peak_hour": posting_hours.most_common(1)[0][0] if posting_hours else None,
+    "peak_day": posting_days.most_common(1)[0][0] if posting_days else None,
+}
 
 posts_with_songs = [p for p in posts_data if p.get("song")]
 posts_with_locations = [p for p in posts_data if p.get("location")]
@@ -471,6 +514,12 @@ with open(f"{OUTPUT_DIR}/posts_with_locations.json", "w", encoding="utf-8") as f
 with open(f"{OUTPUT_DIR}/top_locations.json", "w", encoding="utf-8") as f:
     json.dump(top_locations, f, indent=2, ensure_ascii=False)
 
+with open(f"{OUTPUT_DIR}/stories.json", "w", encoding="utf-8") as f:
+    json.dump(stories_data, f, indent=2, ensure_ascii=False)
+
+with open(f"{OUTPUT_DIR}/highlights.json", "w", encoding="utf-8") as f:
+    json.dump(profile_report.get("highlights", []), f, indent=2, ensure_ascii=False)
+
 # ─────────────────────────────────────────
 # 3. ANALYTICS
 # ─────────────────────────────────────────
@@ -498,6 +547,8 @@ summary = {
     "posts_with_locations":  len(posts_with_locations),
     "stories_checked":       len(story_items),
     "top_locations":         top_locations,
+    "posting_patterns":      posting_patterns,
+    "highlights":            profile_report.get("highlights", []),
     "total_likes":         sum(p["likes"] or 0 for p in posts_data),
     "total_comments":      sum(p["comments"] or 0 for p in posts_data),
     "avg_likes":           round(sum(p["likes"] or 0 for p in posts_data) / max(len(posts_data), 1), 1),
@@ -505,6 +556,31 @@ summary = {
 
 with open(f"{OUTPUT_DIR}/SUMMARY.json", "w", encoding="utf-8") as f:
     json.dump(summary, f, indent=2, ensure_ascii=False)
+
+raw_bundle = {
+    "target_account": TARGET_USERNAME,
+    "scraped_at": summary["scraped_at"],
+    "profile": profile_report,
+    "posts": posts_data,
+    "stories": stories_data,
+    "highlights": profile_report.get("highlights", []),
+    "hashtags": hashtag_counts.most_common(),
+    "mentions": mention_counts.most_common(),
+    "top_songs": top_songs,
+    "top_locations": top_locations,
+    "posting_patterns": posting_patterns,
+    "content_breakdown": dict(post_types),
+    "engagement": {
+        "total_likes": summary["total_likes"],
+        "total_comments": summary["total_comments"],
+        "avg_likes": summary["avg_likes"],
+    },
+}
+
+with open(f"{OUTPUT_DIR}/raw_bundle.json", "w", encoding="utf-8") as f:
+    json.dump(raw_bundle, f, indent=2, ensure_ascii=False)
+
+print("\n[*] Run insights: python instagram_insights.py", TARGET_USERNAME)
 
 print("\n" + "="*55)
 print(f"✅ SCRAPING COMPLETE!")

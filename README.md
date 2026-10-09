@@ -1,3 +1,12 @@
+# How to run
+
+#### Step 1: Scrape full raw data (change TARGET_USERNAME in scraper first)
+python instagram_scraper.py
+
+#### Step 2: Analyze with Ollama
+python instagram_insights.py <any_username>
+python instagram_insights.py sharma091_123 --model llama3.2
+
 # Instagram Scraper
 
 A Python script that collects public profile and post metadata from Instagram for a target account. It uses [Instaloader](https://instaloader.github.io/) for authentication and session management, and calls Instagram's **unofficial internal web API** (the same endpoints the instagram.com website uses in the browser).
